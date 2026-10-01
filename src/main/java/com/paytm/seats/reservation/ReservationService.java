@@ -128,7 +128,16 @@ public class ReservationService {
         // so it cannot cause a double-sell; it just keeps losers of a hot-seat storm off the row locks.
         List<SeatState> peek = repo.peekSeats(showId, seats);
         rejectUnknownSeats(seats, peek);
-        rejectUnavailable(peek);
+        try {
+            rejectUnavailable(peek);
+        } catch (ApiException taken) {
+            // The seats may be "taken" by our own concurrent twin that committed after the key lookup above.
+            var twin = repo.findByKey(userId, key);
+            if (twin.isPresent()) {
+                return replayOrReject(twin.get(), hash);
+            }
+            throw taken;
+        }
 
         long amount = Math.multiplyExact(show.pricePaise(), (long) seats.size());
         UUID reservationId = UUID.randomUUID();
