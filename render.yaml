@@ -1,0 +1,30 @@
+databases:
+  - name: seats-db
+    plan: free
+    region: singapore
+    databaseName: seats
+    user: seats
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: seat-reservation
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health/readiness
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: seats-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: DB_POOL_SIZE
+        value: "20"
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -XX:+UseSerialGC -Xss512k"
