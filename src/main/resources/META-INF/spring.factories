@@ -1,0 +1,1 @@
+org.springframework.boot.env.EnvironmentPostProcessor=com.paytm.seats.config.DatabaseUrlEnvironmentPostProcessor

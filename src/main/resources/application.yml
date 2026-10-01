@@ -1,0 +1,75 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  tomcat:
+    accept-count: 2000
+    max-connections: 20000
+    threads:
+      max: 400
+
+spring:
+  application:
+    name: seat-reservation
+  threads:
+    virtual:
+      enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    url: ${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5432/seats}
+    username: ${DB_USER:seats}
+    password: ${DB_PASSWORD:seats}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 2
+      # Requests wait for a connection rather than fail; the burst queues instead of erroring.
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:30000}
+      # Fail fast on boot when the DB is down so the platform restarts us instead of serving unhealthy.
+      initialization-fail-timeout: 60000
+      pool-name: seats-pool
+  flyway:
+    enabled: true
+  mvc:
+    problemdetails:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    tags:
+      application: seat-reservation
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        reservations.latency: true
+
+app:
+  jwt-secret: ${JWT_SECRET:dev-secret-change-me-dev-secret-change-me-0123456789}
+  jwt-ttl-hours: ${JWT_TTL_HOURS:24}
+  admin-api-key: ${ADMIN_API_KEY:dev-admin-key}
+  default-per-user-limit: ${DEFAULT_PER_USER_LIMIT:4}
+  lock-timeout-ms: ${LOCK_TIMEOUT_MS:5000}
+  gauge-refresh-ms: ${GAUGE_REFRESH_MS:2000}
+
+logging:
+  level:
+    root: INFO
+    com.paytm.seats: INFO
