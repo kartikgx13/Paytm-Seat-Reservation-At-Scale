@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: seat-reservation
+    folder: ""
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

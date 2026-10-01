@@ -1,0 +1,79 @@
+{
+  "uid": "seat-reservation",
+  "title": "Seat Reservation - On-sale",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Reserve outcomes / s",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(reservations_confirmed_total[30s]))", "legendFormat": "confirmed"},
+        {"refId": "B", "expr": "sum by (reason) (rate(reservations_declined_total[30s]))", "legendFormat": "declined: {{reason}}"}
+      ]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "HTTP responses / s by status",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[30s]))", "legendFormat": "{{status}}"}
+      ]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Seats per show (from DB)",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "seats_available", "legendFormat": "available {{show_name}} {{show_id}}"},
+        {"refId": "B", "expr": "seats_confirmed", "legendFormat": "confirmed {{show_name}} {{show_id}}"}
+      ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Reconciliation drift (must be 0)",
+      "gridPos": {"x": 12, "y": 8, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [{"refId": "A", "expr": "max(abs(seats_reconciliation_drift))"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 5, "type": "stat", "title": "5xx (total)",
+      "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [{"refId": "A", "expr": "sum(http_server_requests_seconds_count{status=~\"5..\"}) or vector(0)"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Reserve latency p50 / p99",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_requests_seconds_bucket{uri=\"/shows/{showId}/reserve\"}[1m])))", "legendFormat": "p50"},
+        {"refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri=\"/shows/{showId}/reserve\"}[1m])))", "legendFormat": "p99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "DB pool (Hikari)",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "hikaricp_connections_active", "legendFormat": "active"},
+        {"refId": "B", "expr": "hikaricp_connections_pending", "legendFormat": "pending"},
+        {"refId": "C", "expr": "hikaricp_connections_max", "legendFormat": "max"}
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "JVM heap / CPU",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "prom"},
+      "targets": [
+        {"refId": "A", "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})", "legendFormat": "heap used"},
+        {"refId": "B", "expr": "process_cpu_usage", "legendFormat": "cpu"}
+      ]
+    }
+  ]
+}

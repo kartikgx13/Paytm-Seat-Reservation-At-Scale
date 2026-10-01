@@ -1,0 +1,44 @@
+groups:
+  - name: seat-reservation
+    rules:
+      - alert: ReconciliationDrift
+        expr: max(abs(seats_reconciliation_drift)) > 0
+        for: 0m
+        labels: {severity: page}
+        annotations:
+          summary: "available + held + confirmed != total_seats for a show"
+
+      - alert: ServerErrors
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[1m])) > 0
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "Reservation API is returning 5xx"
+
+      - alert: NotReady
+        expr: up{job="seat-reservation"} == 0
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "Service down or not scrapeable"
+
+      - alert: ConnectionPoolSaturated
+        expr: max(hikaricp_connections_pending) > 50
+        for: 2m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Requests are queueing for DB connections"
+
+      - alert: ReserveLatencyHigh
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri="/shows/{showId}/reserve"}[5m]))) > 2
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p99 reserve latency above 2s"
+
+      - alert: ContentionDeclinesSpiking
+        expr: sum(rate(reservations_declined_total{reason=~"contention|too_busy"}[1m])) > 10
+        for: 2m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Users are being shed for capacity, not for seat availability"
