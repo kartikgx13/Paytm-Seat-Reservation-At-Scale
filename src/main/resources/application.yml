@@ -32,6 +32,13 @@ spring:
   mvc:
     problemdetails:
       enabled: false
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    deserialization:
+      # Money is integer paise; 250.5 must be rejected, not silently truncated.
+      accept-float-as-int: false
+      fail-on-unknown-properties: false
 
 management:
   endpoints:
