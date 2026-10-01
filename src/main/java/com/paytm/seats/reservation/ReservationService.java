@@ -104,6 +104,43 @@ public class ReservationService {
         });
     }
 
+    /**
+     * Owner-only cancel. Locks in the same global order as reserve (reservation row, quota row, seat rows by
+     * label) so cancel and reserve can never deadlock each other. Seats are released only where they still
+     * point at this reservation, so a cancel can never free a seat that now belongs to someone else.
+     * Cancelling twice is a no-op that returns the cancelled reservation.
+     */
+    public ReservationView cancel(UUID reservationId, String userId) {
+        return tx.execute(status -> {
+            repo.setLocalLockTimeout(props.lockTimeoutMs());
+            StoredReservation r = repo.lockById(reservationId)
+                    .filter(s -> s.view().userId().equals(userId))
+                    // Same answer for "missing" and "not yours" so ids of other users' reservations don't leak.
+                    .orElseThrow(() -> ApiException.notFound("reservation"));
+            ReservationView v = r.view();
+            if ("cancelled".equals(v.status())) {
+                return v;
+            }
+            repo.decrementQuota(v.showId(), userId, v.seats().size());
+            repo.lockSeatsOrdered(v.showId(), v.seats());
+            repo.releaseSeats(v.showId(), v.seats(), reservationId);
+            repo.markCancelled(reservationId);
+            return new ReservationView(v.reservationId(), v.showId(), v.userId(), v.seats(), v.amountPaise(),
+                    "cancelled", v.createdAt());
+        });
+    }
+
+    public ReservationView get(UUID reservationId, String userId) {
+        return repo.findById(reservationId)
+                .map(StoredReservation::view)
+                .filter(v -> v.userId().equals(userId))
+                .orElseThrow(() -> ApiException.notFound("reservation"));
+    }
+
+    public List<ReservationView> listMine(String userId, UUID showId) {
+        return repo.findByUserAndShow(userId, showId);
+    }
+
     private ReserveResult replayOrReject(StoredReservation stored, String hash) {
         if (!stored.requestHash().equals(hash)) {
             throw new ApiException(HttpStatus.CONFLICT, "idempotency_key_reused",
