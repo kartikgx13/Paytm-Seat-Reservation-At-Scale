@@ -1,6 +1,7 @@
 package com.paytm.seats.reservation;
 
 import com.paytm.seats.config.AppProperties;
+import com.paytm.seats.observability.ReservationMetrics;
 import com.paytm.seats.reservation.ReservationDtos.ReservationView;
 import com.paytm.seats.reservation.ReservationDtos.ReserveResult;
 import com.paytm.seats.reservation.ReservationRepository.SeatState;
@@ -8,13 +9,18 @@ import com.paytm.seats.reservation.ReservationRepository.StoredReservation;
 import com.paytm.seats.show.ShowService;
 import com.paytm.seats.show.ShowService.ShowRow;
 import com.paytm.seats.web.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
@@ -25,23 +31,29 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Service
 public class ReservationService {
 
     public static final int MAX_KEY_LENGTH = 128;
     public static final int MAX_SEATS_PER_REQUEST = 20;
 
+    private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
+
     private final ReservationRepository repo;
     private final ShowService shows;
     private final TransactionTemplate tx;
     private final AppProperties props;
+    private final ReservationMetrics metrics;
 
     public ReservationService(ReservationRepository repo, ShowService shows, TransactionTemplate tx,
-                              AppProperties props) {
+                              AppProperties props, ReservationMetrics metrics) {
         this.repo = repo;
         this.shows = shows;
         this.tx = tx;
         this.props = props;
+        this.metrics = metrics;
     }
 
     /**
@@ -55,6 +67,50 @@ public class ReservationService {
      * Any decline throws, which rolls back steps 1-3 so a declined attempt leaves no trace.
      */
     public ReserveResult reserve(UUID showId, String userId, List<String> requestedSeats, String idempotencyKey) {
+        long start = System.nanoTime();
+        String outcome = "error";
+        try {
+            ReserveResult r = doReserve(showId, userId, requestedSeats, idempotencyKey);
+            if (r.replayed()) {
+                outcome = "idempotent_replay";
+                metrics.declined(outcome);
+            } else {
+                outcome = "confirmed";
+                metrics.confirmed(r.reservation().seats().size());
+            }
+            log.info("reserve outcome", kv("event", "reserve"), kv("outcome", outcome), kv("showId", showId),
+                    kv("seats", requestedSeats), kv("reservationId", r.reservation().reservationId()),
+                    kv("latencyMs", (System.nanoTime() - start) / 1_000_000));
+            return r;
+        } catch (ApiException e) {
+            outcome = e.code();
+            metrics.declined(outcome);
+            logDecline(outcome, showId, userId, requestedSeats, start);
+            throw e;
+        } catch (DataAccessException e) {
+            outcome = classify(e);
+            metrics.declined(outcome);
+            logDecline(outcome, showId, userId, requestedSeats, start);
+            throw e;
+        } finally {
+            metrics.latency(outcome, Duration.ofNanos(System.nanoTime() - start));
+        }
+    }
+
+    private void logDecline(String reason, UUID showId, String userId, List<String> seats, long start) {
+        log.info("reserve outcome", kv("event", "reserve"), kv("outcome", "declined"), kv("reason", reason),
+                kv("showId", showId), kv("seats", seats),
+                kv("latencyMs", (System.nanoTime() - start) / 1_000_000));
+    }
+
+    private static String classify(DataAccessException e) {
+        if (e instanceof CannotGetJdbcConnectionException) {
+            return "too_busy";
+        }
+        return "contention";
+    }
+
+    private ReserveResult doReserve(UUID showId, String userId, List<String> requestedSeats, String idempotencyKey) {
         List<String> seats = normalizeSeats(requestedSeats);
         String key = normalizeKey(idempotencyKey);
         ShowRow show = shows.find(showId).orElseThrow(() -> ApiException.notFound("show"));
@@ -111,6 +167,17 @@ public class ReservationService {
      * Cancelling twice is a no-op that returns the cancelled reservation.
      */
     public ReservationView cancel(UUID reservationId, String userId) {
+        boolean[] changed = new boolean[1];
+        ReservationView v = doCancel(reservationId, userId, changed);
+        if (changed[0]) {
+            metrics.cancelled(v.seats().size());
+        }
+        log.info("cancel outcome", kv("event", "cancel"), kv("outcome", changed[0] ? "cancelled" : "already_cancelled"),
+                kv("reservationId", reservationId), kv("showId", v.showId()), kv("seats", v.seats()));
+        return v;
+    }
+
+    private ReservationView doCancel(UUID reservationId, String userId, boolean[] changed) {
         return tx.execute(status -> {
             repo.setLocalLockTimeout(props.lockTimeoutMs());
             StoredReservation r = repo.lockById(reservationId)
@@ -125,6 +192,7 @@ public class ReservationService {
             repo.lockSeatsOrdered(v.showId(), v.seats());
             repo.releaseSeats(v.showId(), v.seats(), reservationId);
             repo.markCancelled(reservationId);
+            changed[0] = true;
             return new ReservationView(v.reservationId(), v.showId(), v.userId(), v.seats(), v.amountPaise(),
                     "cancelled", v.createdAt());
         });

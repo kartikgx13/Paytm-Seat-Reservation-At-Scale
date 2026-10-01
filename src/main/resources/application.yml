@@ -52,10 +52,12 @@ management:
       show-details: always
       group:
         readiness:
-          include: readinessState,db
+          include: readinessState,dbReadiness
         liveness:
           include: livenessState
   health:
+    db:
+      enabled: false
     livenessstate:
       enabled: true
     readinessstate:
