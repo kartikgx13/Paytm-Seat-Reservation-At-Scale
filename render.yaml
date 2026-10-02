@@ -26,5 +26,9 @@ services:
         sync: false
       - key: DB_POOL_SIZE
         value: "20"
+      - key: ADMISSION_MAX_CONCURRENT
+        value: "24"
+      - key: ADMISSION_MAX_WAIT_MS
+        value: "30000"
       - key: JAVA_OPTS
-        value: "-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -XX:+UseSerialGC -Xss512k"
+        value: "-XX:MaxRAMPercentage=45 -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=32m -Xss256k -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"

@@ -13,6 +13,9 @@ RUN groupadd --system app && useradd --system --gid app app
 WORKDIR /app
 COPY --from=build /src/target/app.jar app.jar
 USER app
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Djava.security.egd=file:/dev/./urandom"
+# Sized to fit a 512 MB container with headroom: heap ~45%, with metaspace, code cache, direct buffers and thread
+# stacks explicitly capped (left alone, the JVM reserves well past the container limit and gets OOM-killed).
+# C1-only JIT keeps compiler threads from starving request work on fractional-CPU instances.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=45 -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=32m -Xss256k -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError -Djava.security.egd=file:/dev/./urandom"
 EXPOSE 8080
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

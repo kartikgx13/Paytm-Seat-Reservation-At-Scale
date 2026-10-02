@@ -2,8 +2,8 @@ server:
   port: ${PORT:8080}
   shutdown: graceful
   tomcat:
-    accept-count: 2000
-    max-connections: 20000
+    accept-count: 4096
+    max-connections: 4000
     threads:
       max: 400
 
@@ -77,6 +77,8 @@ app:
   default-per-user-limit: ${DEFAULT_PER_USER_LIMIT:4}
   lock-timeout-ms: ${LOCK_TIMEOUT_MS:5000}
   gauge-refresh-ms: ${GAUGE_REFRESH_MS:2000}
+  admission-max-concurrent: ${ADMISSION_MAX_CONCURRENT:64}
+  admission-max-wait-ms: ${ADMISSION_MAX_WAIT_MS:30000}
 
 logging:
   level:
