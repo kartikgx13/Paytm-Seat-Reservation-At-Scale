@@ -52,8 +52,7 @@ all-or-nothing falls straight out of the transactional design.
 
 **Keeping losers off the locks.** Before opening the transaction, a lock-free `SELECT` rejects requests whose seats are
 *visibly* taken. It can only decline, never grant, so it cannot cause a double-sell; it means that once a hot seat is sold, the
-remaining stampede is rejected without touching row locks or pool connections. Under the 20k-request local burst, the large
-majority of `seat_taken` declines took this path.
+remaining stampede is rejected without opening a transaction or waiting on row locks.
 
 **No 5xx under contention.** A lock wait beyond `lock_timeout` (55P03), deadlock (40P01) or serialization failure maps to
 `409 contention` (nothing was written; safe to retry). Hikari pool exhaustion maps to `429 too_busy` + `Retry-After`. Requests
@@ -157,7 +156,8 @@ first draft of these docs. It also set up the local toolchain (JDK, Maven, Colim
   pre-check decline, not removal of the pre-check, because the pre-check is what keeps a hot-seat storm off the row locks.
 - Choices I want to be explicit about owning: `200` (not `201`) for idempotent replays; idempotency keys scoped per user;
   all-or-nothing partials; `404` for cancelling someone else's reservation; `409 contention` / `429 too_busy` instead of 5xx.
-- I ran the burst locally at ~20k requests and against the live URL, and read the numbers rather than trusting a summary.
+- I ran the burst locally at ~20k requests (zero 5xx, every hot seat exactly one 201, metrics reconciled) and against the
+  live URL before submitting.
 
 ## 7. What I'd do next
 
