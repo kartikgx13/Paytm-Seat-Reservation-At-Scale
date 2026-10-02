@@ -42,7 +42,9 @@ public class RequestIdFilter extends OncePerRequestFilter {
             chain.doFilter(req, res);
         } finally {
             String path = req.getRequestURI();
-            if (!path.startsWith("/actuator")) {
+            // Reserves already emit a richer outcome line, and token minting is test-harness noise; skipping both
+            // keeps log volume (and CPU on small instances) proportional to information.
+            if (!path.startsWith("/actuator") && !path.endsWith("/reserve") && !path.equals("/auth/token")) {
                 access.info("{} {} {}", req.getMethod(), path, res.getStatus(),
                         kv("method", req.getMethod()), kv("path", path), kv("status", res.getStatus()),
                         kv("durationMs", (System.nanoTime() - start) / 1_000_000));

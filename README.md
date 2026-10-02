@@ -6,6 +6,7 @@ Java 21 + Spring Boot 3.5 + PostgreSQL 16; every correctness decision is made at
 
 | | |
 |---|---|
+| **Repository** | https://github.com/kartikgx13/Paytm-Seat-Reservation-At-Scale |
 | **Live URL** | `https://<your-service>.onrender.com` _(fill in after deploy)_ |
 | Liveness | `GET /actuator/health/liveness` |
 | Readiness (checks DB, fails closed) | `GET /actuator/health/readiness` |

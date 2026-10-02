@@ -9,5 +9,7 @@ public record AppProperties(
         String adminApiKey,
         int defaultPerUserLimit,
         int lockTimeoutMs,
-        long gaugeRefreshMs) {
+        long gaugeRefreshMs,
+        int admissionMaxConcurrent,
+        long admissionMaxWaitMs) {
 }
