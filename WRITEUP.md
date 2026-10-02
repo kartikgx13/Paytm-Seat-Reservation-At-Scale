@@ -132,7 +132,8 @@ Not paged: a spike of `seat_taken`. That's the system working during an on-sale.
 
 Logs are JSON with a `requestId` (accepted from `X-Request-Id` or generated, echoed in the response) and `userId` on every
 line, plus one outcome line per reserve (`outcome`, `reason`, `seats`, `latencyMs`), so a single user's complaint
-("I got 409 at 20:00:01") can be traced to the exact decision.
+("I got 409 at 20:00:01") can be traced to the exact decision. Render's logs sit behind a dashboard login, so there is a
+[screen recording of the live logs during a full burst](https://drive.google.com/file/d/1NR4wOJWhcqgYBFQx2uvgnCfNiwVKaGe6/view?usp=sharing).
 
 The seat gauges are read **from the database** every 2 s rather than maintained as in-memory counters, so they reconcile with
 `GET /shows/{id}` by construction and survive restarts. Business counters are per-process (reset on restart, as Prometheus

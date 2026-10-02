@@ -11,6 +11,7 @@ Java 21 + Spring Boot 3.5 + PostgreSQL 16; every correctness decision is made at
 | Liveness | `GET /actuator/health/liveness` |
 | Readiness (checks DB, fails closed) | `GET /actuator/health/readiness` |
 | Prometheus metrics | `GET /actuator/prometheus` |
+| Live logs under load (screen recording) | [Google Drive video](https://drive.google.com/file/d/1NR4wOJWhcqgYBFQx2uvgnCfNiwVKaGe6/view?usp=sharing) |
 | Design write-up | [WRITEUP.md](WRITEUP.md) |
 
 > Hosted on Render's **free tier (0.1 CPU, 512 MB)**, which sleeps a service after 15 min without inbound traffic.
@@ -203,7 +204,9 @@ a missing one). Only seats still owned by that reservation are released.
 **Logs**: one JSON object per line on stdout. Every line for a request carries `requestId` (taken from an inbound `X-Request-Id`
 or generated, and echoed in the response header) and `userId`. Each reserve writes an outcome line
 (`event=reserve outcome=confirmed|declined reason=... showId seats latencyMs`) plus an access line (`method path status durationMs`).
-On Render: service, then **Logs** (live tail, searchable).
+On Render: service, then **Logs** (live tail, searchable). Render's logs require a dashboard login, so here is a
+[screen recording of the live logs during a full burst](https://drive.google.com/file/d/1NR4wOJWhcqgYBFQx2uvgnCfNiwVKaGe6/view?usp=sharing)
+(~8k requests, `RESULT: PASS`, zero 5xx).
 
 ---
 
