@@ -13,9 +13,11 @@ Java 21 + Spring Boot 3.5 + PostgreSQL 16; every correctness decision is made at
 | Prometheus metrics | `GET /actuator/prometheus` |
 | Design write-up | [WRITEUP.md](WRITEUP.md) |
 
-> Hosted on Render's **free tier (0.1 CPU, 512 MB)**. It sleeps after 15 min idle; the first request after that
-> cold-starts the JVM (~1-2 min). `./burst.sh` waits for readiness before firing, so it is safe to run against a
-> sleeping instance. On 0.1 CPU a 20k burst is *correct* but *slow* (p50 ~8 s, see below). That's CPU time, not
+> Hosted on Render's **free tier (0.1 CPU, 512 MB)**, which sleeps a service after 15 min without inbound traffic.
+> To keep it warm, the app pings its own public URL every 10 min while running (`KeepWarmPinger`, using Render's
+> `RENDER_EXTERNAL_URL`), and a [GitHub Actions heartbeat](.github/workflows/keep-warm.yml) hits readiness every 5 min
+> (it also wakes the instance if it ever sleeps, and a failed run flags an outage). If you ever do catch a cold start
+> (~1-2 min), `./burst.sh` waits for readiness before firing. On 0.1 CPU a 20k burst is *correct* but *slow* (p50 ~8 s, see below). That's CPU time, not
 > correctness: the same burst at 0.5 CPU finishes in ~25 s with p99 ~2 s.
 
 ---
