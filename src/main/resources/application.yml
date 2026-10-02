@@ -4,6 +4,12 @@ server:
   tomcat:
     accept-count: 4096
     max-connections: 4000
+    # Behind a reverse proxy the app must never be the side that closes a reused keep-alive connection: if it
+    # closes just as the proxy sends the next request on it, the proxy answers 502. So no per-connection request
+    # cap, and an idle timeout longer than any proxy's.
+    max-keep-alive-requests: -1
+    keep-alive-timeout: 620s
+    connection-timeout: 30s
     threads:
       max: 400
 
