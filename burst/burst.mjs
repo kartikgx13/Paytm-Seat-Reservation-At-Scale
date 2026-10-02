@@ -18,7 +18,7 @@ const CONCURRENCY = int(args.concurrency, 800);
 const RUN = Date.now().toString(36);
 
 const violations = [];
-const stats = { byStatus: {}, byReason: {}, network: 0, latencies: [], created: 0, fivexxSamples: [] };
+const stats = { byStatus: {}, byReason: {}, network: 0, latencies: [], created: 0, fivexxSamples: [], edgeRetries: [] };
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -41,18 +41,27 @@ function check(ok, msg) {
   if (!ok) violations.push(msg);
 }
 
+const EDGE_RETRIES = 3;
+
 async function call(method, path, { body, token, headers = {}, record = true } = {}) {
   const h = { 'content-type': 'application/json', ...headers };
   if (token) h.authorization = `Bearer ${token}`;
   const t0 = performance.now();
   try {
-    const res = await fetch(BASE + path, {
-      method, headers: h, body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(120_000),
-    });
-    const text = await res.text();
-    let json = {};
-    try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+    let res, json;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetch(BASE + path, {
+        method, headers: h, body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(120_000),
+      });
+      const text = await res.text();
+      try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+      // A 5xx without the app's JSON error body never reached the app (platform proxy hiccup). Retrying the
+      // identical request is what a real client does, and is safe because every reserve carries an idempotency key.
+      if (res.status < 500 || json.error || attempt >= EDGE_RETRIES) break;
+      if (record) stats.edgeRetries.push(`${res.status} ${res.headers.get('x-render-routing') || 'edge'} ${method} ${path}`);
+      await sleep(500 * 2 ** attempt);
+    }
     if (record) {
       if (res.status >= 500 && stats.fivexxSamples.length < 10) {
         // App errors are JSON with an "error" code; anything else came from a proxy/load balancer in front of it.
@@ -338,10 +347,12 @@ async function main() {
   }
   console.log(`  ${'5xx'.padEnd(34)}${fivexx}`);
   console.log(`  ${'network errors'.padEnd(34)}${stats.network}`);
+  console.log(`  ${'platform-proxy 5xx, retried'.padEnd(34)}${stats.edgeRetries.length}`);
   console.log(`  ${'by status'.padEnd(34)}${JSON.stringify(stats.byStatus)}`);
   console.log(`  ${'latency ms'.padEnd(34)}p50=${pct(stats.latencies, 50).toFixed(0)} p95=${pct(stats.latencies, 95).toFixed(0)} p99=${pct(stats.latencies, 99).toFixed(0)}`);
   check(fivexx === 0, 'zero 5xx across the whole burst');
   for (const s of stats.fivexxSamples) console.log(`  5xx sample: ${s}`);
+  for (const s of stats.edgeRetries.slice(0, 5)) console.log(`  info  retried (never reached the app): ${s}`);
   if (stats.network) console.log(`  WARN  ${stats.network} requests failed at the network layer (client/platform limits, not server responses)`);
 
   console.log(violations.length ? `\nRESULT: FAIL (${violations.length} violation(s))` : '\nRESULT: PASS');

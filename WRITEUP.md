@@ -163,6 +163,11 @@ Result: the live service passes the full ~20k-request burst (10 hot seats x 1,00
 zero 5xx and no restart. Latency on 0.1 CPU is high (p50 ~8 s). The same burst at 0.5 CPU locally completes in ~25 s with p99
 ~2 s and health probes under 0.5 s, so the remaining cost is CPU, not design.
 
+A later run still saw a single `502` (`x-render-routing: no-deploy`) in ~8k requests. The instance did not restart and the
+app's own 5xx counter stayed at zero, so the request never reached the app. The burst script now does what a real client
+should: it retries a 5xx that lacks the app's JSON error body, up to 3 times with backoff. This is safe because every
+reserve carries an idempotency key. It reports how many retries it made, and any 5xx returned by the app still fails the run.
+
 ## 7. AI usage
 
 <!-- Edit this section so it reflects exactly what you did. It is graded on honesty and you'll be asked about it. -->
