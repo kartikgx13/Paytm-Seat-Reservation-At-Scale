@@ -7,21 +7,23 @@ Java 21 + Spring Boot 3.5 + PostgreSQL 16; every correctness decision is made at
 | | |
 |---|---|
 | **Repository** | https://github.com/kartikgx13/Paytm-Seat-Reservation-At-Scale |
-| **Live URL** | `https://<your-service>.onrender.com` _(fill in after deploy)_ |
+| **Live URL** | https://seat-reservation-n32o.onrender.com |
 | Liveness | `GET /actuator/health/liveness` |
 | Readiness (checks DB, fails closed) | `GET /actuator/health/readiness` |
 | Prometheus metrics | `GET /actuator/prometheus` |
 | Design write-up | [WRITEUP.md](WRITEUP.md) |
 
-> Render free tier sleeps after 15 min idle; the first request after that cold-starts the JVM (~30-90 s).
-> `./burst.sh` waits for readiness before firing, so it is safe to run against a sleeping instance.
+> Hosted on Render's **free tier (0.1 CPU, 512 MB)**. It sleeps after 15 min idle; the first request after that
+> cold-starts the JVM (~1-2 min). `./burst.sh` waits for readiness before firing, so it is safe to run against a
+> sleeping instance. On 0.1 CPU a 20k burst is *correct* but *slow* (p50 ~8 s, see below). That's CPU time, not
+> correctness: the same burst at 0.5 CPU finishes in ~25 s with p99 ~2 s.
 
 ---
 
 ## Run the burst (one command)
 
 ```bash
-ADMIN_API_KEY=<admin key> ./burst.sh https://<your-service>.onrender.com
+ADMIN_API_KEY=<admin key> ./burst.sh https://seat-reservation-n32o.onrender.com
 ```
 
 Needs Node 18+ (no `npm install`), or falls back to Docker. Against the local stack the admin key defaults to `dev-admin-key`:
@@ -42,7 +44,31 @@ What it does, against a freshly created show:
 It prints the outcome distribution (confirmed / declined-by-reason / 5xx / network errors, latency percentiles) and exits non-zero on any violation.
 Tunables: `--users 2000 --seats 1000 --hot-seats 5 --hot-users 500 --stampede 5000 --concurrency 800`.
 
-Example run against the local Docker stack with ~20k requests (`--users 4000 --seats 2000 --hot-seats 10 --hot-users 1000 --stampede 9000 --concurrency 1500`):
+**Live run** against https://seat-reservation-n32o.onrender.com (free tier) with ~20k requests
+(`--users 4000 --seats 2000 --hot-seats 10 --hot-users 1000 --stampede 9000 --concurrency 500`):
+
+```
+[1] Hot-seat storm: 1000 users x 10 seats (A1 ... A10) = 10000 requests
+  PASS  seat A1: 1 x 201, 999 x 409, 0 x 5xx, 0 network errors
+  ... (same for A2 - A10)
+[6] Reconciliation
+  PASS  final: available 591 + held 0 + confirmed 1409 = 2000 (total 2000)
+  PASS  mid-burst: invariant held in 44/44 samples
+  PASS  seats granted to us (1409) == seats confirmed on server (1409)
+  PASS  metrics: reservations_confirmed_total delta 1092 == 201s observed 1092
+  PASS  metrics: seats_available=591, seats_confirmed=1409 match GET /shows (591, 1409)
+=== Outcome distribution ===
+  requests                          19892
+  confirmed (201)                   1092
+  idempotent replay (200)           135
+  declined: seat_taken              18653
+  declined: per_user_limit          9
+  5xx                               0
+  latency ms                        p50=7733 p95=10601 p99=14821
+RESULT: PASS
+```
+
+Local Docker stack, same shape (`--concurrency 1500`):
 
 ```
 [1] Hot-seat storm: 1000 users x 10 seats (A1 ... A10) = 10000 requests
@@ -132,7 +158,7 @@ The key may be sent as the `Idempotency-Key` header or as the `idempotency_key` 
 | Would exceed per-user limit | **409** | `per_user_limit` |
 | Same key, different seats/show | **409** | `idempotency_key_reused` |
 | Lock wait exceeded under extreme contention (retryable, nothing written) | **409** | `contention` |
-| DB pool saturated (retryable) | **429** + `Retry-After` | `too_busy` |
+| Overloaded: no execution slot within 30 s, or DB pool exhausted (retryable) | **429** + `Retry-After` | `too_busy` |
 | Seat label not in show / bad input | **400** | `unknown_seat` / `invalid_request` |
 | Missing or invalid token | **401** | `unauthorized` |
 
@@ -183,12 +209,14 @@ On Render: service, then **Logs** (live tail, searchable).
 
 1. Push this repo to GitHub.
 2. Render dashboard: **New**, then **Blueprint**, pick the repo. [`render.yaml`](render.yaml) creates a free Postgres and a Docker web service
-   with `healthCheckPath: /actuator/health/readiness`.
+   with `healthCheckPath: /actuator/health/liveness` (Render restarts on this check, so it must not depend on the
+   DB; readiness still checks the DB and fails closed).
 3. Set `ADMIN_API_KEY` when prompted (`JWT_SECRET` is generated, `DATABASE_URL` is wired from the database).
 4. Wait for the deploy to report healthy, then `ADMIN_API_KEY=... ./burst.sh https://<service>.onrender.com`.
 
 Configuration (env vars): `DATABASE_URL` (or `JDBC_DATABASE_URL`/`DB_USER`/`DB_PASSWORD`), `JWT_SECRET`, `ADMIN_API_KEY`,
-`DB_POOL_SIZE` (20), `LOCK_TIMEOUT_MS` (5000), `DEFAULT_PER_USER_LIMIT` (4), `PORT` (8080).
+`DB_POOL_SIZE` (20), `LOCK_TIMEOUT_MS` (5000), `DEFAULT_PER_USER_LIMIT` (4), `ADMISSION_MAX_CONCURRENT` (64; 24 on Render),
+`ADMISSION_MAX_WAIT_MS` (30000), `JAVA_OPTS`, `PORT` (8080).
 
 ## Layout
 

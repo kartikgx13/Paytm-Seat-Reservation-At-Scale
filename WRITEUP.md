@@ -105,8 +105,9 @@ evaluation means correctness never depends on the sweeper running on time.
 This system is **CP**. Postgres is the single source of truth and every grant is a committed transaction there. If the app
 can't reach the database, it can't decide who owns a seat, so it refuses:
 
-- readiness (`/actuator/health/readiness`) runs `SELECT 1` with a 2 s bound and goes DOWN (503), so the load balancer
-  stops routing; liveness stays UP so the platform doesn't restart-loop a healthy process,
+- readiness (`/actuator/health/readiness`) runs `SELECT 1` on its own dedicated connection with a 2 s bound and goes
+  DOWN (503) for anything that routes on it; liveness stays UP so the platform doesn't restart-loop a healthy process
+  (Render's single health check, which also drives restarts, is therefore pointed at liveness; see section 6),
 - writes fail (`503 db_unavailable` if the DB is unreachable, not a guessed answer).
 
 Selling seats from a cache or a second region during a partition would mean two partitions can each sell A12. For an
@@ -121,7 +122,7 @@ Rules are in [`observability/alerts.yml`](observability/alerts.yml), with a Graf
 | Page | Signal | Why |
 |---|---|---|
 | **Reconciliation drift** | `max(abs(seats_reconciliation_drift)) > 0` | `available+held+confirmed != total`. This is data corruption; nothing else matters until it's explained. |
-| **Any sustained 5xx** | `rate(http_server_requests_seconds_count{status=~"5.."}[1m]) > 0` for 1m | Declines are designed to be 4xx; a 5xx is a bug or an outage. |
+| **Any sustained 5xx** | `rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[1m]) > 0` for 1m | Declines are designed to be 4xx; a 5xx is a bug or an outage. |
 | **Not ready / down** | readiness failing / scrape `up == 0` | DB unreachable, so we are refusing sales. |
 | Ticket: pool saturation | `hikaricp_connections_pending` high | Users are queueing; scale DB connections/instances before latency becomes timeouts. |
 | Ticket: contention/too_busy declines rising | `reservations_declined_total{reason=~"contention\|too_busy"}` | Users are being turned away for *capacity*, not because seats are gone. |
@@ -137,7 +138,32 @@ The seat gauges are read **from the database** every 2 s rather than maintained 
 `GET /shows/{id}` by construction and survive restarts. Business counters are per-process (reset on restart, as Prometheus
 counters do), and the burst script checks counter deltas against the 201s it observed.
 
-## 6. AI usage
+## 6. What broke on the real deploy (Render free tier: 0.1 CPU, 512 MB)
+
+Local bursts were clean from the start; the first live burst was not: thousands of `502`s. Correctness still held
+(every hot seat had exactly one 201), but the instance was being restarted mid-burst, and Render's edge returned
+`502` with `x-render-routing: no-deploy` while no instance was up. Fixes, each verified by reproducing Render's limits
+locally (`docker run --memory 512m --cpus 0.1`) before redeploying:
+
+1. **JVM sized for the container.** Prometheus showed ~365 MB max heap plus uncapped metaspace and a 240 MB code cache
+   inside 512 MB. Now heap is 45% with metaspace, code cache, direct memory and thread stacks capped explicitly; the JIT is
+   C1-only, which also cut cold start on 0.1 CPU from ~210 s to ~85 s. Peak RSS under a 0.1-CPU storm: ~390 MB.
+2. **Readiness had been sharing the request pool.** Mid-burst all 20 connections are busy and hundreds of requests queue
+   for one, so the probe timed out and reported DOWN on a healthy DB. It now uses its own one-connection pool.
+3. **Admission control.** A fair semaphore caps executing requests (24 on Render). Waiters park cheaply on virtual threads
+   in FIFO order, so a stampede doesn't turn into hundreds of runnable threads fighting for 0.1 CPU. Anything not admitted
+   within 30 s gets a retryable `429`, never a 5xx.
+4. **Keep-alive.** One lone edge `502` remained, the classic upstream-closes-a-reused-connection race (Tomcat closes after
+   100 requests per connection by default). The app now never closes keep-alive connections first.
+5. **Health check target.** Even with the above, a strict 0.1-CPU quota freezes the container for ~90 ms of every 100 ms,
+   so probes occasionally took 5-10 s and Render restarted a working instance. Render uses one check for both routing and
+   restarts, and restarts must key off *liveness*, so the health check now points at liveness. Readiness still checks the DB.
+
+Result: the live service passes the full ~20k-request burst (10 hot seats x 1,000 users, 9k stampede with retries) with
+zero 5xx and no restart. Latency on 0.1 CPU is high (p50 ~8 s). The same burst at 0.5 CPU locally completes in ~25 s with p99
+~2 s and health probes under 0.5 s, so the remaining cost is CPU, not design.
+
+## 7. AI usage
 
 <!-- Edit this section so it reflects exactly what you did. It is graded on honesty and you'll be asked about it. -->
 
@@ -157,9 +183,10 @@ first draft of these docs. It also set up the local toolchain (JDK, Maven, Colim
 - Choices I want to be explicit about owning: `200` (not `201`) for idempotent replays; idempotency keys scoped per user;
   all-or-nothing partials; `404` for cancelling someone else's reservation; `409 contention` / `429 too_busy` instead of 5xx.
 - I ran the burst locally at ~20k requests (zero 5xx, every hot seat exactly one 201, metrics reconciled) and against the
-  live URL before submitting.
+  live URL; the live failures and their fixes are in section 6.
+- I chose to stay on Render's free tier and document the CPU limit rather than pay for a bigger instance.
 
-## 7. What I'd do next
+## 8. What I'd do next
 
 1. **Holds + payment**: `held` with TTL, confirm endpoint, lazy expiry + `SKIP LOCKED` sweeper (section 3).
 2. **Admission control for on-sale**: a per-show virtual queue / token bucket in front of reserve so the DB sees a bounded
