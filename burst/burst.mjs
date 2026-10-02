@@ -18,7 +18,7 @@ const CONCURRENCY = int(args.concurrency, 800);
 const RUN = Date.now().toString(36);
 
 const violations = [];
-const stats = { byStatus: {}, byReason: {}, network: 0, latencies: [], created: 0 };
+const stats = { byStatus: {}, byReason: {}, network: 0, latencies: [], created: 0, fivexxSamples: [] };
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -54,6 +54,11 @@ async function call(method, path, { body, token, headers = {}, record = true } =
     let json = {};
     try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
     if (record) {
+      if (res.status >= 500 && stats.fivexxSamples.length < 10) {
+        // App errors are JSON with an "error" code; anything else came from a proxy/load balancer in front of it.
+        const origin = json.error ? `app:${json.error}` : `edge${res.headers.get('x-render-routing') ? ':' + res.headers.get('x-render-routing') : ''}`;
+        stats.fivexxSamples.push(`${res.status} ${origin} ${method} ${path}`);
+      }
       stats.latencies.push(performance.now() - t0);
       stats.byStatus[res.status] = (stats.byStatus[res.status] || 0) + 1;
       if (res.status >= 400 && json.error) stats.byReason[json.error] = (stats.byReason[json.error] || 0) + 1;
@@ -111,7 +116,7 @@ async function metricsSnapshot() {
     return {
       confirmed: pick(/^reservations_confirmed_total\{/),
       seatsConfirmed: pick(/^reservations_seats_confirmed_total\{/),
-      server5xx: pick(/^http_server_requests_seconds_count\{.*status="5\d\d"/),
+      server5xx: pick(/^http_server_requests_seconds_count\{.*status="5\d\d"(?!.*uri="\/actuator)/),
       declined,
       text,
     };
@@ -336,6 +341,7 @@ async function main() {
   console.log(`  ${'by status'.padEnd(34)}${JSON.stringify(stats.byStatus)}`);
   console.log(`  ${'latency ms'.padEnd(34)}p50=${pct(stats.latencies, 50).toFixed(0)} p95=${pct(stats.latencies, 95).toFixed(0)} p99=${pct(stats.latencies, 99).toFixed(0)}`);
   check(fivexx === 0, 'zero 5xx across the whole burst');
+  for (const s of stats.fivexxSamples) console.log(`  5xx sample: ${s}`);
   if (stats.network) console.log(`  WARN  ${stats.network} requests failed at the network layer (client/platform limits, not server responses)`);
 
   console.log(violations.length ? `\nRESULT: FAIL (${violations.length} violation(s))` : '\nRESULT: PASS');

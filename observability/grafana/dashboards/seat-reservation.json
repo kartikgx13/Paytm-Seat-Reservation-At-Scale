@@ -43,7 +43,7 @@
       "id": 5, "type": "stat", "title": "5xx (total)",
       "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prom"},
-      "targets": [{"refId": "A", "expr": "sum(http_server_requests_seconds_count{status=~\"5..\"}) or vector(0)"}],
+      "targets": [{"refId": "A", "expr": "sum(http_server_requests_seconds_count{status=~\"5..\",uri!~\"/actuator.*\"}) or vector(0)"}],
       "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
     },
     {
