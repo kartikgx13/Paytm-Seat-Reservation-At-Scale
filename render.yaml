@@ -13,7 +13,10 @@ services:
     plan: free
     region: singapore
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /actuator/health/readiness
+    # Render uses this one check both to route and to restart. Restarts must key off liveness (is the process
+    # alive?), not readiness: a DB blip, or a CPU-starved readiness probe mid-burst, must not get a healthy process
+    # killed. Readiness (/actuator/health/readiness) still checks the DB and fails closed for anything routing on it.
+    healthCheckPath: /actuator/health/liveness
     autoDeploy: true
     envVars:
       - key: DATABASE_URL
