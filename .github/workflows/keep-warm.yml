@@ -1,0 +1,26 @@
+name: keep-warm
+
+# External heartbeat: wakes the free-tier instance if it ever sleeps (the app also pings itself while running)
+# and doubles as a synthetic readiness check. A failed run means the live service is down; GitHub notifies on failure.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Ping readiness (tolerates a cold start)
+        env:
+          BASE_URL: https://seat-reservation-n32o.onrender.com
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /tmp/body -w '%{http_code}' -m 25 "$BASE_URL/actuator/health/readiness" || true)
+            echo "attempt $i: HTTP $code $(head -c 200 /tmp/body 2>/dev/null)"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "service not ready after ~6 minutes"
+          exit 1
