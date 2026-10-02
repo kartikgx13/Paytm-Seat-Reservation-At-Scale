@@ -171,9 +171,10 @@ reserve carries an idempotency key. It reports how many retries it made, and any
 
 ## 7. AI usage
 
-<!-- Edit this section so it reflects exactly what you did. It is graded on honesty and you'll be asked about it. -->
-
-I used an AI coding agent (Cursor) heavily, and I'm describing it accurately here.
+I used Cursor end to end: to decide the stack, build the service, test it and deploy it. At the same time I made sure I
+understood the concepts and every technique used here (row locking and lock ordering, conditional upserts, idempotency keys,
+readiness vs liveness, admission control, metrics and structured logs), even though my current work experience isn't
+directly in this kind of system. I can walk through and defend any part of it.
 
 **What I directed/decided:**
 - Stack: Java 21 + Spring Boot + PostgreSQL (what I'm strongest in and what I'd extend live), and Render for hosting.
