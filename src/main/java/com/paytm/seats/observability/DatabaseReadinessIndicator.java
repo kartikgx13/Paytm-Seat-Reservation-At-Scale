@@ -5,7 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PreDestroy;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.autoconfigure.jdbc.JdbcConnectionDetails;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
@@ -32,14 +32,16 @@ public class DatabaseReadinessIndicator implements HealthIndicator {
     private final HikariDataSource probePool;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public DatabaseReadinessIndicator(DataSourceProperties props) {
+    public DatabaseReadinessIndicator(JdbcConnectionDetails db) {
         HikariConfig cfg = new HikariConfig();
-        cfg.setJdbcUrl(props.determineUrl());
-        cfg.setUsername(props.determineUsername());
-        cfg.setPassword(props.determinePassword());
+        cfg.setJdbcUrl(db.getJdbcUrl());
+        cfg.setUsername(db.getUsername());
+        cfg.setPassword(db.getPassword());
         cfg.setPoolName("health-probe");
         cfg.setMaximumPoolSize(1);
-        cfg.setMinimumIdle(0);
+        // Keep the connection open so a probe measures DB reachability, not TCP/TLS/auth setup time.
+        cfg.setMinimumIdle(1);
+        cfg.setKeepaliveTime(60_000);
         cfg.setConnectionTimeout(TIMEOUT_MS);
         cfg.setValidationTimeout(1000);
         cfg.setInitializationFailTimeout(-1);
